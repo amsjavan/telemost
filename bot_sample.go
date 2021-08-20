@@ -4,12 +4,16 @@
 package main
 
 import (
+	"log"
 	"os"
 	"os/signal"
 	"regexp"
 	"strings"
-	
+	"time"
+
 	"github.com/mattermost/mattermost-server/v5/model"
+
+	tb "gopkg.in/tucnak/telebot.v2"
 )
 
 const (
@@ -31,6 +35,10 @@ var webSocketClient *model.WebSocketClient
 var botUser *model.User
 var botTeam *model.Team
 var debuggingChannel *model.Channel
+
+//Telegram
+
+var telegramClient *tb.Bot
 
 // Documentation for the Go driver can be found
 // at https://godoc.org/github.com/mattermost/platform/model#Client
@@ -63,23 +71,49 @@ func main() {
 	CreateBotDebuggingChannelIfNeeded()
 	SendMsgToDebuggingChannel("_"+SAMPLE_NAME+" has **started** running_", "")
 
-	// Lets start listening to some channels via the websocket!
-	webSocketClient, err := model.NewWebSocketClient4("ws://api.ghasedakplatform.ir:8065", client.AuthToken)
-	if err != nil {
-		println("We failed to connect to the web socket")
-		PrintError(err)
-	}
+	//// Lets start listening to some channels via the websocket!
+	//webSocketClient, err := model.NewWebSocketClient4("ws://api.ghasedakplatform.ir:8065", client.AuthToken)
+	//if err != nil {
+	//	println("We failed to connect to the web socket")
+	//	PrintError(err)
+	//}
+	//
+	//webSocketClient.Listen()
+	//
+	//go func() {
+	//	for resp := range webSocketClient.EventChannel {
+	//		HandleWebSocketResponse(resp)
+	//	}
+	//}()
 
-	webSocketClient.Listen()
-
-	go func() {
-		for resp := range webSocketClient.EventChannel {
-			HandleWebSocketResponse(resp)
-		}
-	}()
+	telegram()
 
 	// You can block forever with
 	select {}
+}
+
+//blocking
+func telegram() {
+	//Telegram
+	TelegramLogin()
+	telegramClient.Handle(tb.OnChannelPost, func(m *tb.Message) {
+		SendMsgToDebuggingChannel(m.Text, "")
+	})
+
+	telegramClient.Start()
+}
+
+func TelegramLogin() {
+	var err error
+	telegramClient, err = tb.NewBot(tb.Settings{
+		Token:  "1959795220:AAHjj73SSkOJuA99Zq370MTOZoV_udhbLfk",
+		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
+	})
+
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
 }
 
 func MakeSureServerIsRunning() {
