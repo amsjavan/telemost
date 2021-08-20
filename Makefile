@@ -11,3 +11,9 @@ run:
 vendor:
 	@echo "Running $@"
 	GO111MODULE=on go mod vendor
+
+
+
+build:
+	@echo "Running $@"
+	GO111MODULE=on go build
