@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mattermost/mattermost-server/v5/model"
@@ -92,15 +93,94 @@ func main() {
 	select {}
 }
 
+var cache sync.Map
+
 //blocking
 func telegram() {
 	//Telegram
 	TelegramLogin()
 	telegramClient.Handle(tb.OnChannelPost, func(m *tb.Message) {
-		SendMsgToDebuggingChannel(m.Text, "")
+		channelName := m.SenderChat.Username
+		matterId, ok := cache.Load(channelName)
+		if ok {
+			println("===========channelname", channelName)
+			SendMsgToChannel(m.Text, matterId.(string))
+		} else {
+			println("the channel is not register: ", channelName)
+		}
+	})
+	telegramManager()
+	telegramClient.Start()
+}
+
+func telegramManager() {
+	telegramClient.Handle("/addchannel", func(m *tb.Message) {
+		command := m.Text
+		command = strings.ReplaceAll(command, "/addchannel ", "")
+		command = strings.TrimSpace(command)
+		channels := strings.Split(command, ",")
+		if len(channels) != 3 {
+			_, err := telegramClient.Send(m.Sender, "لطفا با فرمت زیر وارد کنید :\n"+
+				"telegram-channel,mattermost-channel,mattermost-team")
+			if err != nil {
+				log.Println(err)
+			}
+		} else {
+			telegramChannel := channels[0]
+			mattermostChannel := channels[1]
+			mattermostTeam := channels[2]
+			matterChannelId, err := getMattermostChannelId(mattermostTeam, mattermostChannel)
+			if err != nil {
+				log.Println("error in getting channeId", err)
+				_, err := telegramClient.Send(m.Sender, "خطا در گرفتن شناسه کانال")
+				if err != nil {
+					log.Println(err)
+				}
+				return
+			}
+
+			cache.Store(telegramChannel, matterChannelId)
+
+			log.Println(telegramChannel, matterChannelId)
+			_, err = telegramClient.Send(m.Sender, "با موفقیت اضافه شد")
+			if err != nil {
+				log.Println(err)
+			}
+		}
+
 	})
 
-	telegramClient.Start()
+	telegramClient.Handle("/removechannel", func(m *tb.Message) {
+		_, err := telegramClient.Send(m.Sender, "Add Channel!")
+		if err != nil {
+			log.Println(err)
+		}
+	})
+
+	telegramClient.Handle(tb.OnText, func(m *tb.Message) {
+		_, err := telegramClient.Send(m.Sender, "لطفا دستور مناسب را وارد کنید")
+		if err != nil {
+			log.Println(err)
+		}
+	})
+}
+
+func getMattermostChannelId(teamName, channelName string) (string, error) {
+	team, resp := client.GetTeamByName(teamName, "")
+	if resp.Error != nil {
+		println("We failed to get the initial load")
+		println("or we do not appear to be a member of the team '" + teamName + "'")
+		return "", resp.Error
+	}
+
+	rchannel, resp := client.GetChannelByName(channelName, team.Id, "")
+	if resp.Error != nil {
+		println("We failed to get the channels")
+		return "", resp.Error
+	}
+
+	return rchannel.Id, nil
+
 }
 
 func TelegramLogin() {
@@ -186,6 +266,19 @@ func CreateBotDebuggingChannelIfNeeded() {
 	} else {
 		debuggingChannel = rchannel
 		println("Looks like this might be the first run so we've created the channel " + CHANNEL_LOG_NAME)
+	}
+}
+
+func SendMsgToChannel(msg, channelId string) {
+	post := &model.Post{}
+	post.ChannelId = channelId
+	post.Message = msg
+
+	post.RootId = ""
+
+	if _, resp := client.CreatePost(post); resp.Error != nil {
+		println("We failed to send a message to the logging channel")
+		PrintError(resp.Error)
 	}
 }
 
